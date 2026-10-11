@@ -19,6 +19,16 @@ install(PROGRAMS
   scripts/wasd_teleop.py
   scripts/reset_robot.py
   scripts/route_mapping.py
+  scripts/make_nav2_v5_params.py
+  scripts/aic_v5_vision.py
+  scripts/aic_v5_patrol.py
+  scripts/aic_v5_audit.py
+  scripts/aic_v5_route.py
+  scripts/map_segment_gate.py
+  scripts/route_preflight.py
+  scripts/lane_geometry_preflight.py
+  scripts/nav_patrol.py
+  scripts/initial_pose.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
