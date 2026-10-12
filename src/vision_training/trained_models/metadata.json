@@ -1,0 +1,107 @@
+{
+  "format": 1,
+  "seed": 20261012,
+  "person_labels": [
+    {
+      "index": 0,
+      "name": "A_C01",
+      "identity": "community"
+    },
+    {
+      "index": 1,
+      "name": "A_C02",
+      "identity": "community"
+    },
+    {
+      "index": 2,
+      "name": "A_C03",
+      "identity": "community"
+    },
+    {
+      "index": 3,
+      "name": "A_C04",
+      "identity": "community"
+    },
+    {
+      "index": 4,
+      "name": "A_F1",
+      "identity": "noncommunity"
+    },
+    {
+      "index": 5,
+      "name": "A_C05",
+      "identity": "community"
+    },
+    {
+      "index": 6,
+      "name": "A_C06",
+      "identity": "community"
+    },
+    {
+      "index": 7,
+      "name": "A_C07",
+      "identity": "community"
+    },
+    {
+      "index": 8,
+      "name": "A_C08",
+      "identity": "community"
+    },
+    {
+      "index": 9,
+      "name": "B_C09",
+      "identity": "community"
+    },
+    {
+      "index": 10,
+      "name": "B_C10",
+      "identity": "community"
+    },
+    {
+      "index": 11,
+      "name": "B_C11",
+      "identity": "community"
+    },
+    {
+      "index": 12,
+      "name": "B_C12",
+      "identity": "community"
+    },
+    {
+      "index": 13,
+      "name": "B_C13",
+      "identity": "community"
+    },
+    {
+      "index": 14,
+      "name": "B_C14",
+      "identity": "community"
+    },
+    {
+      "index": 15,
+      "name": "B_C15",
+      "identity": "community"
+    },
+    {
+      "index": 16,
+      "name": "B_C16",
+      "identity": "community"
+    },
+    {
+      "index": 17,
+      "name": "B_F2",
+      "identity": "noncommunity"
+    }
+  ],
+  "plate_labels": [
+    "苏A·B8Q62",
+    "苏A·Q7M26",
+    "皖B·K3P58"
+  ],
+  "training_samples": {
+    "person_positive_per_asset": 60,
+    "person_negative": 1080,
+    "plate_per_template": 240
+  },
+  "notice": "Synthetic augmentation from supplied textures; validate on camera frames before competition use."
+}
