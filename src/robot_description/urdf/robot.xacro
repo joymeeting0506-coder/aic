@@ -6,14 +6,20 @@
   <material name="grey"><color rgba="0.55 0.55 0.55 1"/></material>
   <material name="blue"><color rgba="0.15 0.35 0.75 1"/></material>
 
-  <xacro:property name="wheel_radius" value="0.05"/>
-  <xacro:property name="wheel_width" value="0.025"/>
-  <xacro:property name="wheel_separation" value="0.33"/>
+  <!-- 整车等比缩放系数：改这一个数即可整体改小/改大小车。
+       只缩几何尺寸（车轮/底盘/传感器安装位），不动速度、视野、分辨率等
+       功能参数，导航、SLAM、红绿灯识别均不受影响。 -->
+  <xacro:property name="scale" value="0.5"/>
+
+  <xacro:property name="wheel_radius" value="${0.05 * scale}"/>
+  <xacro:property name="wheel_width" value="${0.025 * scale}"/>
+  <xacro:property name="wheel_separation" value="${0.33 * scale}"/>
   <xacro:property name="half_sep" value="${wheel_separation / 2.0}"/>
-  <xacro:property name="body_length" value="0.32"/>
-  <xacro:property name="body_width" value="0.24"/>
-  <xacro:property name="body_height" value="0.10"/>
-  <xacro:property name="base_z" value="0.05"/>
+  <xacro:property name="body_length" value="${0.32 * scale}"/>
+  <xacro:property name="body_width" value="${0.24 * scale}"/>
+  <xacro:property name="body_height" value="${0.10 * scale}"/>
+  <!-- base_z 必须等于 wheel_radius：base_link 抬到轮轴高度，轮子才能贴地 -->
+  <xacro:property name="base_z" value="${wheel_radius}"/>
 
   <!-- base_footprint 是 TF 树的根（贴地面），base_link 挂在它上方 base_z 处。
        顺序不能反：若 base_link 当根，KDL 会因「根节点带惯量」报警。 -->
@@ -31,12 +37,12 @@
       <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.03"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <origin xyz="0 0 ${0.02 * scale}" rpy="0 0 0"/>
       <geometry><box size="${body_length} ${body_width} ${body_height}"/></geometry>
       <material name="blue"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <origin xyz="0 0 ${0.02 * scale}" rpy="0 0 0"/>
       <geometry><box size="${body_length} ${body_width} ${body_height}"/></geometry>
     </collision>
   </link>
@@ -61,7 +67,7 @@
     <joint name="${name}_joint" type="continuous">
       <parent link="base_link"/>
       <child link="${name}"/>
-      <origin xyz="0.04 ${y_pos} 0" rpy="0 0 0"/>
+      <origin xyz="${0.04 * scale} ${y_pos} 0" rpy="0 0 0"/>
       <!-- 轮轴必须指向 +Y：指向 -Y 会让 gz 的 DiffDrive 把 linear.x>0 解释成往 -X 走，
            小车就会“倒着走”（前进方向与车头相反，相机装在 +X 侧）。 -->
       <axis xyz="0 1 0"/>
@@ -81,13 +87,13 @@
       <origin xyz="0 0 0"/>
       <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
     </inertial>
-    <visual><geometry><sphere radius="0.025"/></geometry><material name="grey"/></visual>
-    <collision><geometry><sphere radius="0.025"/></geometry></collision>
+    <visual><geometry><sphere radius="${0.025 * scale}"/></geometry><material name="grey"/></visual>
+    <collision><geometry><sphere radius="${0.025 * scale}"/></geometry></collision>
   </link>
   <joint name="caster_joint" type="fixed">
     <parent link="base_link"/>
     <child link="caster"/>
-    <origin xyz="-0.14 0 -0.025" rpy="0 0 0"/>
+    <origin xyz="${-0.14 * scale} 0 ${-0.025 * scale}" rpy="0 0 0"/>
   </joint>
   <gazebo reference="caster">
     <mu1>0.01</mu1>
@@ -100,12 +106,12 @@
       <origin xyz="0 0 0"/>
       <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
     </inertial>
-    <visual><geometry><cylinder radius="0.03" length="0.04"/></geometry><material name="black"/></visual>
+    <visual><geometry><cylinder radius="${0.03 * scale}" length="${0.04 * scale}"/></geometry><material name="black"/></visual>
   </link>
   <joint name="lidar_joint" type="fixed">
     <parent link="base_link"/>
     <child link="lidar_link"/>
-    <origin xyz="0 0 0.10" rpy="0 0 0"/>
+    <origin xyz="0 0 ${0.10 * scale}" rpy="0 0 0"/>
   </joint>
 
   <link name="camera_link">
@@ -118,7 +124,7 @@
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/>
     <child link="camera_link"/>
-    <origin xyz="0.16 0 0.06" rpy="0 -0.2 0"/>
+    <origin xyz="${0.16 * scale} 0 ${0.06 * scale}" rpy="0 -0.2 0"/>
   </joint>
 
   <link name="imu_link">
@@ -131,7 +137,7 @@
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
     <child link="imu_link"/>
-    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    <origin xyz="0 0 ${0.04 * scale}" rpy="0 0 0"/>
   </joint>
 
   <gazebo>
