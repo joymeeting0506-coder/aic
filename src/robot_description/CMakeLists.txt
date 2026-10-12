@@ -18,6 +18,7 @@ install(PROGRAMS
   scripts/auto_mapping.py
   scripts/wasd_teleop.py
   scripts/reset_robot.py
+  scripts/traffic_light_detector.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

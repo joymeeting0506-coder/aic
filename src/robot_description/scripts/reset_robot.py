@@ -25,7 +25,7 @@ def main():
     req.orientation.w = math.cos(yaw / 2.0)
 
     result, resp = node.request(
-        '/world/smart_community/set_pose', req,
+        '/world/smart_community_semifinal_v8/set_pose', req,
         pose_pb2.Pose, boolean_pb2.Boolean, 4000,
     )
     print(f'set_pose 结果: result={result} data={resp.data}')

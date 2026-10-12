@@ -111,7 +111,7 @@ class TrafficLightController(Node):
         fac.pose.orientation.z = qz
         fac.pose.orientation.w = qw
         result, resp = self.gz.request(
-            '/world/smart_community/create', fac,
+            '/world/smart_community_semifinal_v8/create', fac,
             entity_factory_pb2.EntityFactory, boolean_pb2.Boolean, 4000,
         )
         return result and resp.data
@@ -121,7 +121,7 @@ class TrafficLightController(Node):
         req.name = name
         req.type = entity_pb2.Entity.MODEL
         result, resp = self.gz.request(
-            '/world/smart_community/remove', req,
+            '/world/smart_community_semifinal_v8/remove', req,
             entity_pb2.Entity, boolean_pb2.Boolean, 4000,
         )
         return result and resp.data

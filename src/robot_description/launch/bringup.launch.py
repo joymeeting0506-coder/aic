@@ -62,12 +62,12 @@ def generate_launch_description():
         condition=IfCondition(headless),
     )
 
-    # 世界文件里已经自带 patrol_bot，所以这里只取 spawn_robot.launch.py 里的
-    # robot_state_publisher（spawn:=false），不再重复 spawn——同名模型撞名会让
-    # x/y/yaw 参数静默失效。世界若无车，用 spawn:=true 单独跑 spawn_robot.launch.py。
+    # v8.4 半决赛世界（smart_community_semifinal_v8）不含 patrol_bot，需在此 spawn。
+    # spawn_robot.launch.py 内部用 ros_gz_sim create 按 x/y/yaw 生成机器人，
+    # 同时启动 robot_state_publisher。
     spawn_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(robot_pkg, 'launch', 'spawn_robot.launch.py')),
-        launch_arguments={'spawn': 'false'}.items(),
+        launch_arguments={'spawn': 'true'}.items(),
     )
 
     bridge = Node(
@@ -80,7 +80,7 @@ def generate_launch_description():
             'camera@sensor_msgs/msg/Image[gz.msgs.Image',
             'camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             'imu@sensor_msgs/msg/Imu[gz.msgs.IMU',
-            '/world/smart_community/model/patrol_bot/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
+            '/world/smart_community_semifinal_v8/model/patrol_bot/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         # 不桥接 gz 的 /model/patrol_bot/tf：TF 树由 robot_state_publisher（URDF 静态链）
@@ -92,7 +92,7 @@ def generate_launch_description():
             ('camera', '/camera/image_raw'),
             ('camera_info', '/camera/camera_info'),
             ('imu', '/imu/data'),
-            ('/world/smart_community/model/patrol_bot/joint_state', '/joint_states'),
+            ('/world/smart_community_semifinal_v8/model/patrol_bot/joint_state', '/joint_states'),
         ],
         output='screen',
     )
@@ -111,6 +111,13 @@ def generate_launch_description():
         output='screen',
     )
 
+    traffic_light_detector = Node(
+        package='robot_description',
+        executable='traffic_light_detector.py',
+        name='traffic_light_detector',
+        output='screen',
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'headless',
@@ -123,5 +130,5 @@ def generate_launch_description():
             description='ogre（稳定 GUI）、software_render 或 sensor_safe（llvmpipe+ogre2）',
         ),
         *env, gz_sim, gz_sim_software, gz_sim_headless,
-        spawn_robot, bridge, traffic_light, frame_remap,
+        spawn_robot, bridge, traffic_light, frame_remap, traffic_light_detector,
     ])

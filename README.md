@@ -22,10 +22,11 @@ sudo apt install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-slam-
 | 机器人 `patrol_bot` | ✅ | 差速底盘 + 2D LiDAR + RGB 相机 + IMU，球体轮子碰撞（不打滑） |
 | 传感器桥接 | ✅ | LiDAR/相机/IMU/odom/cmd_vel → ROS2，frame_id 前缀已重映射 |
 | 红绿灯动态切换 | ✅ | 两盏灯红→绿→黄循环，双缓冲切换（无闪烁） |
+| 红绿灯颜色识别 | ✅ | HSV 分割识别红/绿/黄状态，发布 `/traffic_light/*` 话题 + 标注图像 |
 | SLAM 建图 | ✅ | slam_toolbox 在线异步建图，已保存地图 |
 | Nav2 自主导航 | ✅ | AMCL 定位 + 规划 + 控制，单点导航已跑通 |
 | 航点巡检 | ⏳ | 未完成（下一步） |
-| 视觉识别（人偶/车牌/红绿灯） | ⏳ | 未完成 |
+| 视觉识别（人偶/车牌） | ⏳ | 未完成 |
 
 ## 三、编译
 
@@ -132,6 +133,7 @@ aic_ws/
 │   │   │   └── spawn_robot.launch.py
 │   │   └── scripts/
 │   │       ├── frame_remap.py      # frame_id 前缀重映射 + odom→base_link TF
+│   │       ├── traffic_light_detector.py  # 红绿灯颜色识别（HSV 分割）
 │   │       ├── wasd_teleop.py      # WASD 遥控
 │   │       ├── reset_robot.py      # 重置机器人位置
 │   │       └── auto_mapping.py     # 自动避障建图（有漂移，不推荐）
@@ -164,7 +166,8 @@ aic_ws/
 1. **地图未覆盖场地上方区域**（只覆盖下方约 2.2m）——需重新走遍全场建图
 2. **IMU 传感器被 gz-sim 静默丢弃**（日志无报错），待排查
 3. **航点巡检未完成**——可用 nav2 的 `follow_waypoints` action 或自定义节点
-4. **视觉识别未做**——人偶身份分类、红绿灯状态、车牌 OCR、双屏输出
+4. **视觉识别部分完成**——红绿灯颜色识别已做（`traffic_light_detector.py`），人偶身份分类、车牌 OCR 待做
+5. **红灯停绿灯行未接入导航**——`/traffic_light/state` 已发布，需在巡检逻辑里消费该话题控制停车/起步
 5. **自动避障建图 odom 漂移**——差速机器人频繁转向打滑，建议手动建图
 
 ## 十、参考
