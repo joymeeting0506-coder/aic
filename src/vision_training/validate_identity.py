@@ -36,10 +36,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    manifest = HERE.parent / "src/smart_community_gazebo/person_manifest.csv"
+    manifest = HERE.parent / "smart_community_gazebo/person_manifest.csv"
     if not manifest.exists():
         raise FileNotFoundError(f"Person manifest not found: {manifest}")
-    _, identity_model, _, metadata = load_models()
+    _, identity_model, _, metadata, _, _, _, _ = load_models()
     labels = metadata["person_labels"]
     output = Path(args.output)
     if not output.is_absolute():
@@ -53,7 +53,7 @@ def main() -> None:
     manifest_rows = list(csv.DictReader(manifest.open(encoding="utf-8-sig", newline="")))
     templates = []
     for item in manifest_rows:
-        path = HERE.parent / "src/smart_community_gazebo/models" / item["model"] / "meshes/person_board.png"
+        path = HERE.parent / "smart_community_gazebo/models" / item["model"] / "meshes/person_board.png"
         board = cv2.imread(str(path), cv2.IMREAD_COLOR)
         feature_image = cv2.resize(board, PERSON_SIZE, interpolation=cv2.INTER_AREA)
         feature = PERSON_HOG.compute(feature_image).reshape(-1).astype(np.float32)
@@ -63,7 +63,7 @@ def main() -> None:
     rows: list[dict[str, str]] = []
     cards: list[tuple[Image.Image, dict[str, str]]] = []
     for item in manifest_rows:
-            image_path = HERE.parent / "src/smart_community_gazebo/models" / item["model"] / "meshes/person_board.png"
+            image_path = HERE.parent / "smart_community_gazebo/models" / item["model"] / "meshes/person_board.png"
             image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
             if image is None:
                 raise FileNotFoundError(f"Could not read person board: {image_path}")

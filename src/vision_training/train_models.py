@@ -14,7 +14,7 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-ASSETS = REPO / "src/smart_community_gazebo"
+ASSETS = REPO / "smart_community_gazebo"
 OUT = HERE / "trained_models"
 PERSON_SIZE = (64, 128)  # width, height
 PLATE_SIZE = (128, 64)   # width, height

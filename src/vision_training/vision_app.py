@@ -36,12 +36,20 @@ def load_models():
     if missing:
         raise FileNotFoundError("Model files missing; run train_models.py first: " + ", ".join(map(str, missing)))
     metadata = json.loads(required[-1].read_text(encoding="utf-8"))
-    return (
-        cv2.ml.SVM_load(str(required[0])),
-        cv2.ml.SVM_load(str(required[1])),
-        cv2.ml.SVM_load(str(required[2])),
-        metadata,
-    )
+    detector = cv2.ml.SVM_load(str(required[0]))
+    identity = cv2.ml.SVM_load(str(required[1]))
+    plate_model = cv2.ml.SVM_load(str(required[2]))
+    # Per-character OCR models are optional: when they are missing the code falls
+    # back to the whole-plate template classifier, so older checkouts still run.
+    province_svm = char_svm = None
+    province_labels = metadata.get("province_labels", [])
+    char_labels = metadata.get("char_labels", [])
+    province_path = MODELS / "province_classifier.xml"
+    char_path = MODELS / "char_classifier.xml"
+    if province_path.exists() and char_path.exists() and province_labels and char_labels:
+        province_svm = cv2.ml.SVM_load(str(province_path))
+        char_svm = cv2.ml.SVM_load(str(char_path))
+    return detector, identity, plate_model, metadata, province_svm, char_svm, province_labels, char_labels
 
 
 def classify_patch(svm, hog, patch, size):
@@ -110,9 +118,19 @@ def detect_people(frame, detector, identity_model, metadata, threshold=0.0, max_
     return [(x, y, w, h, label, confidence) for x, y, w, h, confidence, label in kept]
 
 
-def detect_plates(frame, plate_model, plate_texts):
+def detect_plates(frame, plate_model, plate_texts, province_svm=None, char_svm=None, province_labels=(), char_labels=()):
+    # Primary path: true per-character OCR reads any standard blue plate.
+    if province_svm is not None and char_svm is not None:
+        from plate_ocr import locate_plate, read_plate
+        bbox, face = locate_plate(frame)
+        if face is not None:
+            text = read_plate(face, province_svm, char_svm, province_labels, char_labels)
+            if text:
+                x, y, w, h = bbox
+                return [(x, y, w, h, text, 0.90)]
+
+    # Fallback: whole-plate template classifier (only knows the 3 sim plates).
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # The three provided simulation plates are blue with white lettering.
     mask = cv2.inRange(hsv, np.array([90, 65, 35]), np.array([140, 255, 255]))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=2)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -204,7 +222,7 @@ def main():
     parser.add_argument("--output", default="vision_output.mp4", help="Annotated video path for video sources")
     args = parser.parse_args()
 
-    detector, identity_model, plate_model, metadata = load_models()
+    detector, identity_model, plate_model, metadata, province_svm, char_svm, province_labels, char_labels = load_models()
     source = int(args.source) if args.source.isdigit() else args.source
     is_image = isinstance(source, str) and Path(source).suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}
     if is_image:
@@ -212,7 +230,7 @@ def main():
         if frame is None:
             raise FileNotFoundError(source)
         people = [] if args.plates_only else detect_people(frame, detector, identity_model, metadata, args.threshold)
-        plates = detect_plates(frame, plate_model, metadata["plate_labels"])
+        plates = detect_plates(frame, plate_model, metadata["plate_labels"], province_svm, char_svm, province_labels, char_labels)
         annotated = draw_results(frame.copy(), people, plates)
         out_path = Path(args.output) if args.output.lower().endswith((".png", ".jpg", ".jpeg")) else Path("annotated_image.jpg")
         cv2.imwrite(str(out_path), annotated)
@@ -234,7 +252,7 @@ def main():
             break
         frame_index += 1
         people = [] if args.plates_only else detect_people(frame, detector, identity_model, metadata, args.threshold)
-        plates = detect_plates(frame, plate_model, metadata["plate_labels"])
+        plates = detect_plates(frame, plate_model, metadata["plate_labels"], province_svm, char_svm, province_labels, char_labels)
         for _, _, _, _, label, confidence in people:
             print(f"person: {label['identity']} ({label['name']}), confidence={confidence:.3f}")
         for _, _, _, _, text, _score in plates:
