@@ -11,9 +11,10 @@ usable footprint map clearance. Runs without SLAM (map_server + AMCL).
 seen and navigation succeeds; there is no unsafe bypass switch.
 """
 import argparse, json, math, subprocess, sys, time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from aic_v5_route import load_points, planned_stops, centerline_error, normalize
-from aic_v5_audit import load_map, clearance, report, segment_check, lateral_margin_check
+from aic_v5_audit import load_map, clearance, report, segment_check, lateral_margin_check, poly_at, overlapping
 
 STOPS_AT={'A_LEFT_VIEW','A_BOTTOM_B_TOP_VIEW','B_RIGHT_VIEW','PLATE_1','PLATE_2','PLATE_3'}
 # Camera is mounted facing robot +X. Route point yaw often looks along the
@@ -27,6 +28,44 @@ PHOTO_WORLD_HEADINGS={
 }
 
 # Pass-through points are actual official points, not fictitious substitutes.
+
+# AIC_V5_5_GUARDED_LANE_CORNER_TURN
+# AIC_LANE_FOLLOW_V5_4: special lane-constrained straight-road legs only.
+# NO automatic replanning inside these legs: unexpected obstacles -> stop/fail,
+# do not steer around painted markings. Other legs still use Nav2 planner.
+LANE_FOLLOW_LEGS = {('LEFT_CORNER','A_LEFT_VIEW'),
+                    ('A_LEFT_VIEW','MIDDLE_LEFT'),
+                    ('BOTTOM_TURN','PARKING_ENTRY')}
+
+
+# AIC_V56_UNIFIED_LANE_FOLLOW_20261013
+# The START/FINISH line crosses a modelled parking-lot paint marker. Keep
+# those two boundary transitions on the original guarded Nav2 pose controller;
+# do NOT conceal the crossing with a fake lane-compliance pass.
+PAINT_BOUNDARY_TRANSITIONS = {('START','TOP_STAGING'), ('RIGHT_TOP','FINISH')}
+UNIFIED_MIN_LENGTH_M = .30
+
+def use_unified_follow(a, seq):
+    """Select the SAME centerline controller for every sufficiently long,
+    straight road. Multi-poses for GREEN crossings must remain collinear.
+    Short waypoints and in-place camera yaws retain original pose navigation.
+    """
+    if not seq or (a['name'],seq[-1]['name']) in PAINT_BOUNDARY_TRANSITIONS:
+        return False
+    b=seq[-1]
+    dx=float(b['x'])-float(a['x']);dy=float(b['y'])-float(a['y'])
+    length=math.hypot(dx,dy)
+    if length < UNIFIED_MIN_LENGTH_M:
+        return False
+    for p in seq:
+        # All points in one FollowPath must lie on the same directed line.
+        if centerline_error(p['x'],p['y'],a,b)>.012:
+            return False
+        t=((p['x']-a['x'])*dx+(p['y']-a['y'])*dy)/(length*length)
+        if t < -.001 or t > 1.001:
+            return False
+    return True
+
 GATE_SPANS={
     'top':('TOP_STAGING',('TOP_LIGHT_WAIT','TOP_AFTER_LIGHT')),
     'mid':('MID_STAGING',('B_RIGHT_VIEW','MID_LIGHT_WAIT','BOTTOM_TURN')),
@@ -37,11 +76,15 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--mode', choices=['preview','top-stage','patrol'],default='preview')
     ap.add_argument('--ack-official-crossing',action='store_true')
+    ap.add_argument('--resume-top-stage', action='store_true',
+                    help='Guarded recovery only: robot physically at TOP_STAGING; first leg omitted')
     ap.add_argument('--leg-timeout',type=float,default=180,help='Per-leg SIMULATION seconds (not wall seconds)')
     ap.add_argument('--green-timeout',type=float,default=90,help='Traffic wait SIMULATION seconds (not wall seconds)')
     ap.add_argument('--centerline-max',type=float,default=.10,
                     help='Emergency deviation stop, not proof of painted-line compliance')
     args=ap.parse_args()
+    if args.resume_top_stage and args.mode!='patrol':
+        ap.error('--resume-top-stage requires --mode patrol')
     if args.leg_timeout<30 or args.green_timeout<20 or not .10<=args.centerline_max<=.18:
         ap.error('Unsupported timeout or centerline-max')
     from ament_index_python.packages import get_package_share_directory
@@ -57,6 +100,14 @@ def main():
     for i,p in enumerate(stops):print(f"  {i:02d} {p['name']:<26} ({p['x']:+.3f},{p['y']:+.3f},{p['yaw']:+.3f})")
     blocked=report(route,map_yaml)
     if args.mode=='preview':
+        previous={'name':'START','x':0.,'y':0.,'yaw':0.}
+        counts={'CENTERLINE_FOLLOW':0,'SHORT_OR_BOUNDARY_NAV2':0}
+        for target in stops:
+            mode='CENTERLINE_FOLLOW' if use_unified_follow(previous,[target]) else 'SHORT_OR_BOUNDARY_NAV2'
+            counts[mode]+=1
+            print('UNIFIED_PLAN',previous['name'],'->',target['name'],mode)
+            previous=target
+        print('UNIFIED_PREVIEW_PASS',counts, 'traffic groups are separately checked in patrol')
         print('V5_PREVIEW_OK: no motion; footprint grid audit, not a driving/traffic compliance certificate')
         return 0
     if blocked:
@@ -74,7 +125,7 @@ def main():
     from rclpy.parameter import Parameter
     from rclpy.time import Time
     from rclpy.qos import qos_profile_sensor_data
-    from nav_msgs.msg import Odometry
+    from nav_msgs.msg import Odometry, Path as NavPath
     from sensor_msgs.msg import Image,LaserScan
     from std_msgs.msg import String
     from geometry_msgs.msg import PoseStamped
@@ -90,7 +141,8 @@ def main():
     out=Path.home()/'aic_ws'/'aic_results'/('v5_patrol_'+stamp)
     out.mkdir(parents=True,exist_ok=True)
     flog=(out/'events.jsonl').open('w',encoding='utf-8')
-    latest={'laser_wall':0,'laser_ok':False,'odom_wall':0,'camera_wall':0,
+    latest={'motion_linear':None, 'motion_angular':None,
+            'laser_wall':0,'laser_ok':False,'odom_wall':0,'camera_wall':0,
             'signal':None,'signal_wall':0,'capture':None,'capture_wall':0}
     moving=False
     def log(tag,**k):
@@ -100,10 +152,19 @@ def main():
     def spin(t=.1):rclpy.spin_once(nav,timeout_sec=t)
     def sim_seconds():return nav.get_clock().now().nanoseconds*1e-9
     def cb_scan(m):
+        # +inf means a normal no-hit beam; reject corruption, not open space.
         vs=[v for v in m.ranges if math.isfinite(v) and m.range_min<=v<=m.range_max]
+        nohit=sum(1 for v in m.ranges if math.isinf(v) and v>0)
+        total=len(m.ranges)
         latest['laser_wall']=time.monotonic()
-        latest['laser_ok']=len(vs)>=100 and max(vs)>.5 and max(vs)-min(vs)>.2
-    def cb_odom(m):latest['odom_wall']=time.monotonic()
+        latest['laser_ok']=(total>=180 and m.range_max>m.range_min>=0
+            and len(vs)>=max(60,math.ceil(total*.12))
+            and len(vs)+nohit>=math.ceil(total*.95))
+    def cb_odom(m):
+        latest['odom_wall']=time.monotonic()
+        t=m.twist.twist
+        latest['motion_linear']=math.hypot(t.linear.x,t.linear.y)
+        latest['motion_angular']=abs(t.angular.z)
     def cb_camera(m):latest['camera_wall']=time.monotonic()
     def cb_signal(m):
         try:
@@ -213,8 +274,172 @@ def main():
             if candidate<d:d=candidate;segment=(a['name'],b['name'])
             a=b
         return d,(x,y,yaw),segment
+
+    # AIC_LANE_FOLLOW_V5_4: read only Gazebo paint (visual-only, invisible to lidar).
+    # Ignore zebra stripes for paint collision purposes; official crossings are
+    # handled elsewhere by the real-camera traffic gates.
+    world_sdf = Path.home()/'aic_ws/src/smart_community_gazebo/worlds/smart_community_v2.sdf'
+    if not world_sdf.is_file():
+        world_sdf=share/'worlds/smart_community_v2.sdf'
+    lane_boxes=[]
+    if args.mode=='patrol':
+        root_sdf=ET.parse(world_sdf).getroot()
+        world_node=root_sdf.find('world')
+        if world_node is None or world_node.get('name')!='smart_community_semifinal_v8':
+            raise RuntimeError('Lane-check SDF world mismatch; refusing patrol')
+        if abs(abs(float(raw[0]['yaw']))-math.pi)>.001:
+            raise RuntimeError('Lane-check expects START world yaw=pi')
+        for mod in world_node.findall('model'):
+            nm=mod.get('name','')
+            if not nm.startswith(('line_outer_','h_','v_')):continue
+            pose_txt=mod.findtext('pose')
+            size_txt=mod.findtext('./link/visual/geometry/box/size')
+            if not pose_txt or not size_txt:
+                raise RuntimeError('Lane-check marking malformed '+nm)
+            xx,yy,*_=map(float,pose_txt.split())
+            sx,sy,*_=map(float,size_txt.split())
+            # START yaw=pi: transform from world SDF into local map.
+            xx=float(raw[0]['x'])-xx;yy=float(raw[0]['y'])-yy
+            lane_boxes.append((nm,(xx-sx/2,yy-sy/2,xx+sx/2,yy+sy/2)))
+        if len(lane_boxes)<15:
+            raise RuntimeError('Lane-check missing paint markers; refusing patrol')
+
+    def lane_paint_near(x,y,yaw,buffer=.015):
+        """Conservative actual oriented body+wheel overlap with painted lines."""
+        hull=poly_at(x,y,yaw)
+        contacts=[]
+        for nm,(x0,y0,x1,y1) in lane_boxes:
+            rect=[(x0-buffer,y0-buffer),(x1+buffer,y0-buffer),
+                  (x1+buffer,y1+buffer),(x0-buffer,y1+buffer)]
+            if overlapping(hull,rect):contacts.append(nm)
+        return contacts
+
+    def centerline_follow_path(a,seq):
+        """Dense, straight, map-frame FollowPath; includes all gate via points.
+
+        MPPI is given the road heading at its terminal pose. Any final corner
+        yaw is performed separately by the safeguarded Nav2 Spin.
+        """
+        b=seq[-1]
+        x,y,yaw=pos()
+        dx=float(b['x'])-float(a['x']);dy=float(b['y'])-float(a['y'])
+        length=math.hypot(dx,dy)
+        if not UNIFIED_MIN_LENGTH_M<=length<=3.0:
+            abort('Unified FollowPath unexpected leg length')
+        heading=math.atan2(dy,dx)
+        if abs(normalize(yaw-heading))>.30:
+            abort('Unified FollowPath start heading mismatch (>0.30 rad)')
+        dline=centerline_error(x,y,a,b)
+        start_err=math.hypot(x-a['x'],y-a['y'])
+        if dline>.045 or start_err>.11:
+            abort(f'Unified FollowPath bad start (lateral={dline:.3f}, origin={start_err:.3f})')
+        touches=lane_paint_near(x,y,yaw)
+        if touches:
+            abort('Unified FollowPath START paint <1.5cm: '+str(touches))
+        progress=((x-a['x'])*dx+(y-a['y'])*dy)/(length*length)
+        if progress<-.11/length or progress>max(.16,.11/length):
+            abort('Unified FollowPath unexpected longitudinal starting offset')
+        traj=NavPath();traj.header.frame_id='map'
+        traj.header.stamp=nav.get_clock().now().to_msg()
+        def add(xx,yy,hh):
+            po=PoseStamped();po.header=traj.header
+            po.pose.position.x=float(xx);po.pose.position.y=float(yy)
+            po.pose.orientation.z=math.sin(hh/2)
+            po.pose.orientation.w=math.cos(hh/2)
+            traj.poses.append(po)
+        add(x,y,yaw)
+        first=max(0.,progress)+.04/length
+        if first>=.96:abort('Unified FollowPath starts too close to endpoint')
+        sections=[]
+        for p in seq:
+            t=((p['x']-a['x'])*dx+(p['y']-a['y'])*dy)/(length*length)
+            if t>first+1e-6:
+                sections.append(t)
+        if not sections or sections[-1]<.999:
+            abort('Unified FollowPath invalid ordered via points')
+        previous=first
+        for end in sections:
+            count=max(1,math.ceil((end-previous)*length/.025))
+            for k in range(1,count+1):
+                t=previous+(end-previous)*k/count
+                add(a['x']+dx*t,a['y']+dy*t,heading)
+            previous=end
+        return traj
+
+    def finish_lane_corner_turn(a,b):
+        """Real Nav2 Spin after lane FollowPath completes, never during the straight.
+
+        Preflight uses actual stopped TF, not nominal official checkpoint;
+        +/-2cm 2D perturbation and 1-degree increments around the entire sweep.
+        Motion aborts on runtime paint, map footprint, localization or drift.
+        """
+        nonlocal moving
+        x,y,yaw=pos()
+        lane_heading=math.atan2(b['y']-a['y'],b['x']-a['x'])
+        if abs(normalize(yaw-lane_heading))>.18:
+            abort('V55_TURN_BLOCKED: road-heading mismatch after FollowPath')
+        endpoint_error=math.hypot(x-b['x'],y-b['y'])
+        if endpoint_error>.09:
+            abort(f'V55_TURN_BLOCKED: endpoint {endpoint_error:.3f}m >.09m')
+        turn_delta=normalize(b['yaw']-yaw)
+        if abs(turn_delta)<.10:
+            log('V55_TURN_NOT_NEEDED',checkpoint=b['name'])
+            return
+        if not .9<abs(turn_delta)<1.8:
+            abort('V55_TURN_BLOCKED: unexpected turn yaw '+str(round(turn_delta,3)))
+        offsets=((0,0),(.02,0),(-.02,0),(0,.02),(0,-.02),
+                 (.014,.014),(.014,-.014),(-.014,.014),(-.014,-.014))
+        for j in range(91):
+            check_yaw=yaw+turn_delta*j/90
+            for ox,oy in offsets:
+                marks=lane_paint_near(x+ox,y+oy,check_yaw)
+                c=clearance(grid,x+ox,y+oy,check_yaw)
+                if marks or c!='FREE':
+                    abort(f'V55_TURN_BLOCKED: swept footprint at angle {check_yaw:.3f} '
+                          f'offset={(ox,oy)}, paint={marks}, map={c}')
+        # Failing to find the Spin server must stop here, not wait forever.
+        from rclpy.action import ActionClient
+        from nav2_msgs.action import Spin
+        spin_client=ActionClient(nav,Spin,'spin')
+        available=spin_client.wait_for_server(timeout_sec=4.0)
+        spin_client.destroy()
+        if not available:abort('V55_TURN_BLOCKED: Nav2 /spin action server absent')
+        health(camera=args.mode=='patrol')
+        log('V55_LANE_SPIN_START',checkpoint=b['name'],
+            delta_rad=round(turn_delta,4),actual_stop=[x,y,yaw],
+            endpoint_error_m=round(endpoint_error,4),sweep_guard_m=.02)
+        pivot=(x,y)
+        nav.spin(spin_dist=turn_delta,time_allowance=22)
+        moving=True
+        started=sim_seconds();wall_start=time.monotonic();max_drift=0.
+        while not nav.isTaskComplete():
+            spin(.035);health(camera=args.mode=='patrol')
+            if sim_seconds()-started>26 or time.monotonic()-wall_start>75:
+                abort('V55_TURN_ABORT: Nav2 Spin timed out')
+            try:cx,cy,cyaw=pos()
+            except Exception as e:abort('V55_TURN_ABORT: lost TF '+str(e))
+            drift=math.hypot(cx-pivot[0],cy-pivot[1]);max_drift=max(max_drift,drift)
+            if drift>.035:abort(f'V55_TURN_ABORT: pivot drift {drift:.3f}m >.035m')
+            marks=lane_paint_near(cx,cy,cyaw)
+            if marks:abort('V55_TURN_ABORT: paint '+','.join(marks))
+            if clearance(grid,cx,cy,cyaw)!='FREE':
+                abort('V55_TURN_ABORT: body intersects static obstacle')
+        moving=False
+        if nav.getResult()!=TaskResult.SUCCEEDED:
+            abort('V55_TURN_ABORT: Nav2 Spin did not succeed')
+        spin(.15)
+        cx,cy,cyaw=pos()
+        if (math.hypot(cx-pivot[0],cy-pivot[1])>.035 or
+                abs(normalize(cyaw-b['yaw']))>.18 or
+                lane_paint_near(cx,cy,cyaw) or
+                clearance(grid,cx,cy,cyaw)!='FREE'):
+            abort('V55_TURN_ABORT: unsafe final spin pose')
+        log('V55_LANE_SPIN_DONE',checkpoint=b['name'],
+            actual=[cx,cy,cyaw],max_pivot_drift_m=round(max_drift,4))
+
     def travel(seq,current,gate=None):
         nonlocal moving
+        lane_leg = use_unified_follow(current,seq)
         goals=[current]+seq
         for a,b in zip(goals,goals[1:]):
             counts,bad=segment_check(grid,a,b)
@@ -223,7 +448,13 @@ def main():
                 abort(f'Preflight segment {a["name"]}->{b["name"]} grid collision/margin: {(bad+side_bad)[0]}')
         health(camera=args.mode=='patrol')
         log('NAV_START',from_point=current['name'],goals=[p['name'] for p in seq],gate=gate)
-        if len(seq)==1:nav.goToPose(goal(seq[0]))
+        if lane_leg:
+            lane_path=centerline_follow_path(current,seq)
+            log('LANE_FOLLOW_PATH_START',from_point=current['name'],to_point=seq[-1]['name'],
+                path_poses=len(lane_path.poses),max_runtime_centerline_error_m=.055,
+                note='Unified straight FollowPath; via points retained; real obstacle -> stop; no replanning')
+            nav.followPath(lane_path)
+        elif len(seq)==1:nav.goToPose(goal(seq[0]))
         else:nav.goThroughPoses([goal(p) for p in seq])
         moving=True;start_sim=sim_seconds();start_wall=time.monotonic()
         # For the first safe distance after GREEN staging, red/yellow before
@@ -239,10 +470,18 @@ def main():
             except Exception as e:abort('Lost TF: '+str(e))
             # Narrow lamp-post corridor: 5cm lateral error already collides
             # with an occupied pixel in the user's ORIGINAL map.
-            narrow=segment and segment[1]=='BOTTOM_TURN' and segment[0] in ('MID_LIGHT_WAIT','MID_STAGING','B_RIGHT_VIEW')
+            # The added via point splits the original narrow lamp-post corridor.
+            # BOTH sublegs keep the original strict 3.5cm deviation stop.
+            narrow=bool(segment and (segment[0],segment[1]) in (
+                ('MID_LIGHT_WAIT','LEG12_GUIDE'), ('LEG12_GUIDE','BOTTOM_TURN')))
             bound=min(args.centerline_max,.035) if narrow else args.centerline_max
+            if lane_leg:bound=min(bound,.055)  # <=5.5cm lane error, not a lane certificate
             if d>bound:
                 abort(f'Centerline deviation {d:.3f}m (limit {bound:.3f}, segment={segment}); safety stop')
+            if lane_leg:
+                contacts=lane_paint_near(x,y,yaw)
+                if contacts:
+                    abort('Paint-line clearance <1.5cm at actual pose: '+','.join(contacts))
             # Runtime footprint occupancy prevents passing known obstacles; Nav2
             # dynamic collision monitor provides an independent laser guard.
             cl=clearance(grid,x,y,yaw)
@@ -258,6 +497,9 @@ def main():
         moving=False
         result=nav.getResult()
         if result!=TaskResult.SUCCEEDED:abort('Nav2 failed: '+str(result))
+        if lane_leg:
+            # End of straight leg: only NOW rotate at real stopped position.
+            finish_lane_corner_turn(current,seq[-1])
         spin(.15)
         x,y,yaw=pos();end=seq[-1]
         err=math.hypot(x-end['x'],y-end['y'])
@@ -288,16 +530,45 @@ def main():
             try:x,y,yaw=pos();break
             except Exception:
                 if time.monotonic()-t>20:abort('No map->base_footprint TF')
-        if math.hypot(x,y)>.12 or abs(normalize(yaw))>.25:
-            abort(f'Robot not at map START {(x,y,yaw)}; restart cleanly, no AMCL reset on moving robot')
-        log('READY',start=[x,y,yaw],out=str(out))
-        prev={'name':'START','x':x,'y':y,'yaw':yaw}
+        # AIC_TOP_STAGE_RECOVERY_20261013
+        # Recovery is deliberately limited to first traffic-light staging area.
+        # Never replace physical position with a fake START / initial pose.
+        if args.resume_top_stage:
+            stage=stops[0]
+            if stage['name']!='TOP_STAGING':
+                abort('RESUME_REFUSED: first target no longer TOP_STAGING')
+            dist=math.hypot(x-stage['x'],y-stage['y'])
+            angle=abs(normalize(yaw-stage['yaw']))
+            v=latest['motion_linear'];omega=latest['motion_angular']
+            if dist>.09 or angle>.16:
+                abort(f'RESUME_REFUSED: not at TOP_STAGING (distance={dist:.3f}, yaw_error={angle:.3f})')
+            if v is None or omega is None or v>.025 or omega>.05:
+                abort(f'RESUME_REFUSED: robot must be stationary (v={v}, omega={omega})')
+            if lane_paint_near(x,y,yaw):
+                abort('RESUME_REFUSED: body intersects road paint')
+            cl=clearance(grid,x,y,yaw)
+            if cl!='FREE':
+                abort('RESUME_REFUSED: actual footprint intersects '+str(cl))
+            # Explicitly do not claim the START->TOP_STAGING leg has been replayed.
+            log('READY_RESUME_TOP_STAGING',actual=[x,y,yaw],distance_m=round(dist,4),
+                note='PARTIAL RUN: start leg not rerun; top traffic gate still mandatory',out=str(out))
+            prev=stage
+            i=0  # resume at TOP_STAGING, keep mandatory light gate
+        else:
+            if math.hypot(x,y)>.12 or abs(normalize(yaw))>.25:
+                abort(f'Robot not at map START {(x,y,yaw)}; use guarded recovery ONLY at TOP_STAGING')
+            log('READY',start=[x,y,yaw],out=str(out))
+            prev={'name':'START','x':x,'y':y,'yaw':yaw}
+            i=0
         name_index={p['name']:i for i,p in enumerate(stops)}
-        i=0
         while i<len(stops):
             p=stops[i]
             if p['name']=='TOP_STAGING' or p['name']=='MID_STAGING':
-                prev=travel([p],prev);i+=1
+                if args.resume_top_stage and p['name']=='TOP_STAGING' and i==0:
+                    log('TOP_STAGE_ALREADY_REACHED',note='First traffic gate remains mandatory')
+                else:
+                    prev=travel([p],prev)
+                i+=1
                 if args.mode=='top-stage':
                     log('TOP_STAGE_COMPLETE',notes='Camera gate not yet entered')
                     print('V5_TOP_STAGE_OK');return 0
@@ -315,17 +586,41 @@ def main():
                 via=stops[i:i+len(expected_names)]
                 if [p['name'] for p in via]!=list(expected_names):
                     abort('Route gate checkpoints mismatch '+gate)
+                if gate=='mid':
+                    # Optimization validated by read-only NavFn via-point probe.
+                    # This is a NON-OFFICIAL guide point, only in the Nav2 goal
+                    # sequence. Original checkpoint identities and order remain.
+                    wait_point, turn_point = via[-2], via[-1]
+                    if (wait_point['name']!='MID_LIGHT_WAIT' or
+                            turn_point['name']!='BOTTOM_TURN' or
+                            abs(wait_point['x']-turn_point['x'])>0.003 or
+                            not wait_point['y']+0.20 < 2.480 < turn_point['y']-0.20):
+                        abort('LEG12_GUIDE geometry unexpected; refusing patrol')
+                    guide=dict(wait_point)
+                    guide.update(name='LEG12_GUIDE', y=2.480)
+                    via=via[:-1]+[guide,via[-1]]
+                    log('LEG12_GUIDE_INSERTED',map=[guide['x'],guide['y']],
+                        note='Nav2 through-pose only; no change to official route')
                 prev=travel(via,prev,gate=gate)
                 for checkpoint in via:
-                    log('CHECKPOINT_PASSED',name=checkpoint['name'],via=True)
-                i+=len(via)
+                    if checkpoint['name']=='LEG12_GUIDE':
+                        log('NAVIGATION_HELPER_PASSED',name='LEG12_GUIDE')
+                    else:
+                        log('CHECKPOINT_PASSED',name=checkpoint['name'],via=True)
+                # The inserted LEG12_GUIDE is NOT an official stop.
+                # Advance only by original checkpoints, otherwise PARKING_ENTRY is skipped.
+                i+=len(expected_names)
                 continue
             prev=travel([p],prev)
             if p['name'] in STOPS_AT:prev=camera_look_and_inspect(p,prev)
             i+=1
         log('FULL_PATROL_NAV_FINISHED',official_points=len(raw),
+            partial_run=bool(args.resume_top_stage),
             disclaimer='No claim of lane, traffic, vision accuracy or dynamic collision certification')
-        print('V5_FULL_ROUTE_NAV_FINISHED: Nav2 reached FINISH; inspect log, video and recognition outputs')
+        if args.resume_top_stage:
+            print('V5_RESUMED_ROUTE_NAV_FINISHED: TOP_STAGING to FINISH; START leg not replayed')
+        else:
+            print('V5_FULL_ROUTE_NAV_FINISHED: Nav2 reached FINISH; inspect log, video and recognition outputs')
         return 0
     except KeyboardInterrupt:
         if moving:

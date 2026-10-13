@@ -29,6 +29,7 @@ install(PROGRAMS
   scripts/lane_geometry_preflight.py
   scripts/nav_patrol.py
   scripts/initial_pose.py
+  scripts/traffic_light_detector.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -43,7 +43,7 @@ def detect_lamp(frame,roi):
     hsv=cv2.cvtColor(chip,cv2.COLOR_BGR2HSV)
     # Hue red wraps; white / grayed out lamps excluded by S,V floors.
     masks={
-        'RED':cv2.bitwise_or(cv2.inRange(hsv,(0,125,145),(11,255,255)),cv2.inRange(hsv,(170,125,145),(179,255,255))),
+        'RED':cv2.bitwise_or(cv2.inRange(hsv,(0,120,120),(18,255,255)),cv2.inRange(hsv,(170,120,120),(179,255,255))),
         'YELLOW':cv2.inRange(hsv,(18,120,155),(40,255,255)),
         'GREEN':cv2.inRange(hsv,(40,100,130),(90,255,255)),
     }

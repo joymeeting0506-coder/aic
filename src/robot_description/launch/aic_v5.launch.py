@@ -25,12 +25,21 @@ def generate_launch_description():
                    ['--mid-roi=',LaunchConfiguration('mid_roi')],
                    ['--yolo-weights=',LaunchConfiguration('yolo_weights')]],
         condition=IfCondition(LaunchConfiguration('perception')))])
+    # Optional teammate colour detection for demonstration ONLY.
+    # It publishes /traffic_light/*, NOT the v5.4 /aic/traffic/observation gate.
+    team_traffic_demo=TimerAction(period=7.0,actions=[Node(
+        package='robot_description',executable='traffic_light_detector.py',
+        name='traffic_light_detector',output='screen',
+        parameters=[{'use_sim_time':True}],
+        condition=IfCondition(LaunchConfiguration('team_traffic_demo')))])
     return LaunchDescription([
         DeclareLaunchArgument('headless',default_value='false'),
         DeclareLaunchArgument('rviz',default_value='false'),
         DeclareLaunchArgument('perception',default_value='true'),
+        DeclareLaunchArgument('team_traffic_demo',default_value='false',
+            description='Teammate red/green/yellow recognition VISUAL DEMO, no gate permission'),
         DeclareLaunchArgument('top_roi',default_value=''),
         DeclareLaunchArgument('mid_roi',default_value=''),
         DeclareLaunchArgument('yolo_weights',default_value='',
             description='Optional local YOLO weights; empty means NOT_CONFIGURED'),
-        nav,vision])
+        nav,vision,team_traffic_demo])

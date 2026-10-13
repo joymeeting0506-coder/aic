@@ -19,6 +19,8 @@
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
   <depend>rclpy</depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
 
   <exec_depend>smart_community_gazebo</exec_depend>
 
