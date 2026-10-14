@@ -13,6 +13,11 @@ install(
 )
 
 install(PROGRAMS
+  scripts/aic_coverage_core.py
+  scripts/aic_coverage_mapping.py
+  scripts/aic_handoff_core.py
+  scripts/aic_handoff_initial_pose.py
+  scripts/aic_mission_supervisor.py
   scripts/frame_remap.py
   scripts/explore_mapping.py
   scripts/auto_mapping.py
@@ -22,8 +27,25 @@ install(PROGRAMS
   scripts/traffic_light_detector.py
   scripts/vision_detector.py
   scripts/waypoint_patrol.py
+  scripts/route_mapping.py
+  scripts/make_nav2_v5_params.py
+  scripts/aic_v5_vision.py
+  scripts/aic_team_vision_core.py
+  scripts/aic_v5_patrol.py
+  scripts/aic_v5_audit.py
+  scripts/aic_v5_route.py
+  scripts/map_segment_gate.py
+  scripts/route_preflight.py
+  scripts/lane_geometry_preflight.py
+  scripts/nav_patrol.py
+  scripts/initial_pose.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+# Trained HOG/SVM prototypes are supplied by the teammate; this optional
+# directory is populated once by the integrated installer (not auto-trained).
+install(DIRECTORY inspection_models/
+  DESTINATION share/${PROJECT_NAME}/inspection_models OPTIONAL)
 
 ament_package()
 

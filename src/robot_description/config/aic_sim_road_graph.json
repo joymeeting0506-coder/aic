@@ -1,0 +1,32 @@
+{
+  "schema": "aic_sim_road_graph_v1",
+  "note": "For the CURRENT AIC Gazebo simulated street grid only. These are permitted road centerlines expressed in the SLAM map's START-anchored local coordinates. Not a physical-world lane detector. The route planner still consumes LIVE /map and /scan_clean. Revalidate whenever SDF or map anchors change.",
+  "road_segments_map": [
+    [[0.000, 0.000], [3.570, 0.000]],
+    [[3.570, 0.000], [3.570, 3.574]],
+    [[3.570, 1.262], [1.890, 1.262]],
+    [[1.890, 1.262], [1.890, 3.574]],
+    [[3.570, 3.574], [0.630, 3.574]],
+    [[0.630, 3.574], [0.630, 0.000]],
+    [[0.630, 0.000], [0.000, 0.000]]
+  ],
+  "legacy_route_map": [
+    [0.000, 0.000],
+    [1.264, 0.000],
+    [2.134, 0.000],
+    [3.570, 0.000],
+    [3.570, 0.636],
+    [3.570, 1.262],
+    [2.634, 1.262],
+    [1.890, 1.262],
+    [1.890, 1.886],
+    [1.890, 2.026],
+    [1.890, 3.574],
+    [0.630, 3.574],
+    [0.630, 3.386],
+    [0.630, 2.930],
+    [0.630, 2.288],
+    [0.630, 0.000],
+    [0.000, 0.000]
+  ]
+}

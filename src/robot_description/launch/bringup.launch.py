@@ -23,6 +23,9 @@ def generate_launch_description():
     map_file = os.path.join(world_pkg, 'maps', 'community.yaml')
     nav2_params = os.path.join(robot_pkg, 'config', 'nav2_params.yaml')
 
+    start_navigation = LaunchConfiguration('start_navigation')
+    start_traffic_detector = LaunchConfiguration('start_traffic_detector')
+    robot_scale = LaunchConfiguration('robot_scale')
     headless = LaunchConfiguration('headless')
     render_mode = LaunchConfiguration('render_mode')
     software_render = PythonExpression([
@@ -70,7 +73,7 @@ def generate_launch_description():
     # 同时启动 robot_state_publisher。
     spawn_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(robot_pkg, 'launch', 'spawn_robot.launch.py')),
-        launch_arguments={'spawn': 'true'}.items(),
+        launch_arguments={'spawn': 'true', 'scale': robot_scale}.items(),
     )
 
     bridge = Node(
@@ -119,20 +122,26 @@ def generate_launch_description():
         executable='traffic_light_detector.py',
         name='traffic_light_detector',
         output='screen',
+        condition=IfCondition(start_traffic_detector),
     )
 
     # Nav2 定位 + 导航（与 nav_bringup.launch.py 一致），让 GUI 快捷命令也能直接跑巡检。
     localization = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(nav2_pkg, 'launch', 'localization_launch.py')),
+        condition=IfCondition(start_navigation),
         launch_arguments={'map': map_file, 'params_file': nav2_params, 'use_sim_time': 'true'}.items(),
     )
 
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(nav2_pkg, 'launch', 'navigation_launch.py')),
+        condition=IfCondition(start_navigation),
         launch_arguments={'params_file': nav2_params, 'use_sim_time': 'true'}.items(),
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument('start_navigation', default_value='true'),
+        DeclareLaunchArgument('start_traffic_detector', default_value='true'),
+        DeclareLaunchArgument('robot_scale', default_value='0.5'),
         DeclareLaunchArgument(
             'headless',
             default_value='false',

@@ -1,7 +1,7 @@
 frame_id: map
 route:
 - name: START
-  x: 3.86
+  x: 3.884
   y: 3.886
   yaw: 3.141592653589793
   action: depart_left
@@ -20,13 +20,11 @@ route:
   y: 3.886
   yaw: -1.5707963267948966
   action: turn_down
-# 左边道路下行，转到朝右(+X)看 A 街区
 - name: A_LEFT_VIEW
   x: 0.314
   y: 3.25
   yaw: 0.0
   action: view_A_left
-# 转回朝下，继续走到中横道
 - name: LEFT_TURN_DOWN
   x: 0.314
   y: 2.624
@@ -37,7 +35,6 @@ route:
   y: 2.624
   yaw: 0.0
   action: turn_right
-# 中横道，朝上看 A 底部、朝下看 B 顶部
 - name: A_BOTTOM_VIEW
   x: 1.25
   y: 2.624
@@ -53,7 +50,6 @@ route:
   y: 2.624
   yaw: -1.5707963267948966
   action: turn_down
-# 中竖道下行，转到朝左(-X)看 B 街区
 - name: B_RIGHT_VIEW
   x: 1.994
   y: 2.0
@@ -74,7 +70,6 @@ route:
   y: 0.312
   yaw: 1.5707963267948966
   action: turn_up
-# 停车道，逐个转到朝右(+X)看车牌，之间转回朝上继续走
 - name: PLATE_1
   x: 3.254
   y: 0.314
@@ -111,7 +106,7 @@ route:
   yaw: 0.0
   action: turn_finish
 - name: FINISH
-  x: 3.86
+  x: 3.884
   y: 3.886
   yaw: 0.0
   action: finish

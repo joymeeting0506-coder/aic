@@ -3,19 +3,22 @@ import subprocess
 import tempfile
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import xacro
 
 
-def generate_launch_description():
+def spawn_actions(context):
     pkg_path = get_package_share_directory('robot_description')
     xacro_path = os.path.join(pkg_path, 'urdf', 'robot.xacro')
 
     # xacro -> URDF（给 robot_state_publisher 用）
-    doc = xacro.process_file(xacro_path)
+    scale = float(LaunchConfiguration('scale').perform(context))
+    if scale not in (0.5, 1.0):
+        raise ValueError('Supported robot scales: 0.5 (team) or 1.0 (V5)')
+    doc = xacro.process_file(xacro_path, mappings={'scale': str(scale)})
     urdf_str = doc.toprettyxml(indent='  ')
 
     # URDF -> SDF（保留 <gazebo> 里的传感器，spawn 用）
@@ -40,16 +43,7 @@ def generate_launch_description():
     spawn_yaw = LaunchConfiguration('yaw', default='3.14159')
     do_spawn = LaunchConfiguration('spawn', default='true')
 
-    return LaunchDescription([
-        DeclareLaunchArgument('x', default_value='3.88', description='Spawn X（默认：起点线）'),
-        DeclareLaunchArgument('y', default_value='3.88', description='Spawn Y（默认：起点线）'),
-        DeclareLaunchArgument('z', default_value='0.15', description='Spawn Z'),
-        DeclareLaunchArgument('yaw', default_value='3.14159', description='Spawn yaw（默认：朝西 -X）'),
-        # 世界文件里已经自带 patrol_bot 时，传 spawn:=false，只起 robot_state_publisher，
-        # 避免同名模型撞名（撞名会让 x/y/yaw 参数静默失效）。
-        DeclareLaunchArgument('spawn', default_value='true',
-                              description='是否 spawn 小车（世界自带车时设 false）'),
-
+    return [
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
@@ -72,4 +66,16 @@ def generate_launch_description():
             output='screen',
             condition=IfCondition(do_spawn)
         )
+    ]
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument('x', default_value='3.88'),
+        DeclareLaunchArgument('y', default_value='3.88'),
+        DeclareLaunchArgument('z', default_value='0.15'),
+        DeclareLaunchArgument('yaw', default_value='3.14159'),
+        DeclareLaunchArgument('spawn', default_value='true'),
+        DeclareLaunchArgument('scale', default_value='0.5'),
+        OpaqueFunction(function=spawn_actions),
     ])

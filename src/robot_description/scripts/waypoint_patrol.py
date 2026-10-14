@@ -35,6 +35,7 @@ except ImportError:
 
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped
+from aic_v5_route import to_local
 
 
 # 普通通过点轻微停顿（让导航控制器收敛）
@@ -106,7 +107,20 @@ class WaypointPatrol(Node):
         self.get_logger().info(f'航点文件：{self.route_file}')
         with open(self.route_file, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        return data.get('route', [])
+        route = data.get('route', [])
+        if not route or route[0].get('name') != 'START':
+            raise ValueError('Route must begin at START for the selected SLAM map')
+        # The retained SLAM map was built at the V5 official START. The team
+        # route's START differs by 2.4 cm and must not redefine the map frame.
+        from ament_index_python.packages import get_package_share_directory
+        reference_file = os.path.join(
+            get_package_share_directory('smart_community_gazebo'),
+            'config', 'official_route.yaml')
+        with open(reference_file, 'r', encoding='utf-8') as f:
+            reference = yaml.safe_load(f)['route'][0]
+        if reference.get('name') != 'START':
+            raise ValueError('Map reference route must begin at START')
+        return [dict(wp, **to_local(wp, reference)) for wp in route]
 
     # ------------------------------------------------------------------
     @staticmethod

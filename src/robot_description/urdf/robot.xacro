@@ -9,7 +9,8 @@
   <!-- 整车等比缩放系数：改这一个数即可整体改小/改大小车。
        只缩几何尺寸（车轮/底盘/传感器安装位），不动速度、视野、分辨率等
        功能参数，导航、SLAM、红绿灯识别均不受影响。 -->
-  <xacro:property name="scale" value="0.5"/>
+  <xacro:arg name="scale" default="0.5"/>
+  <xacro:property name="scale" value="$(arg scale)"/>
 
   <xacro:property name="wheel_radius" value="${0.05 * scale}"/>
   <xacro:property name="wheel_width" value="${0.025 * scale}"/>

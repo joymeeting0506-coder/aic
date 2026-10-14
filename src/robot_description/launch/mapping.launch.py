@@ -95,7 +95,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'explorer',
             default_value='explore_mapping.py',
-            description='自主探索节点：explore_mapping.py（默认）或 auto_mapping.py',
+            description='左下角起步探索；START 起步覆盖请用 aic_mapping_demo.launch.py',
         ),
         *env, gz_sim, spawn_robot, bridge, frame_remap, slam, explorer,
     ])

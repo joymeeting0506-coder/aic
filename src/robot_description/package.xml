@@ -1,14 +1,11 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>robot_description</name>
   <version>0.1.0</version>
   <description>Patrol robot URDF with Gazebo Harmonic plugins for smart community competition</description>
   <maintainer email="biao@todo.com">biao</maintainer>
   <license>Apache-2.0</license>
-
   <buildtool_depend>ament_cmake</buildtool_depend>
-
   <depend>xacro</depend>
   <depend>robot_state_publisher</depend>
   <depend>ros_gz_sim</depend>
@@ -22,13 +19,18 @@
   <depend>cv_bridge</depend>
   <depend>nav2_msgs</depend>
   <exec_depend>python3-yaml</exec_depend>
-
+  <exec_depend>python3-pil</exec_depend>
   <exec_depend>smart_community_gazebo</exec_depend>
-
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
-
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_simple_commander</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
 </package>
