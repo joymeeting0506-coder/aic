@@ -39,9 +39,9 @@ class TrafficLightController(Node):
         super().__init__('traffic_light_controller')
         self.gz = gz.transport.Node()
 
-        self.declare_parameter('red_duration', 5.0)
-        self.declare_parameter('green_duration', 5.0)
-        self.declare_parameter('yellow_duration', 2.0)
+        self.declare_parameter('red_duration', 10.0)
+        self.declare_parameter('green_duration', 15.0)
+        self.declare_parameter('yellow_duration', 3.0)
         self.durations = {
             'red': self.get_parameter('red_duration').value,
             'green': self.get_parameter('green_duration').value,

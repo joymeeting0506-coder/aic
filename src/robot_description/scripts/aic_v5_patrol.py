@@ -596,7 +596,7 @@ def main():
                         gate_green_wall=now
                         gate_image_ns=stamp
 
-                    if now-gate_green_wall>.40 or age>.8:
+                    if now-gate_green_wall>.80 or age>.8:
                         abort(f'Traffic {gate} no fresh green before commitment '
                               f'(raw={state},stable={v.get("state")},'
                               f'age={age:.2f}s,green_age={now-gate_green_wall:.2f}s)')
