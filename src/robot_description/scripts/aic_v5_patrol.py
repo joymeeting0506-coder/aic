@@ -232,7 +232,7 @@ def main():
         m=String();m.data=label
         latest['capture']=None;start=time.monotonic()
         for _ in range(3):snap_pub.publish(m);spin(.08)
-        while time.monotonic()-start<5:
+        while time.monotonic()-start<45:
             spin(.1)
             result=latest['capture']
             if result and result.get('name')==label and latest['capture_wall']>=start:
@@ -246,7 +246,7 @@ def main():
         # green already in progress. Camera-only input (not SDF/controller topic).
         log('TRAFFIC_WAIT',gate=gate,require='red/yellow then NEW GREEN')
         latest['signal']=None;latest['signal_wall']=0
-        non_green=False;last_ts=0;greens=0
+        non_green=False;last_ts=0;last_state=None;last_image_stamp=-1;greens=0
         started_sim=sim_seconds();started_wall=time.monotonic()
         while sim_seconds()-started_sim<args.green_timeout and time.monotonic()-started_wall<1800:
             send_gate(gate);spin(.12);health(camera=True)
@@ -255,6 +255,16 @@ def main():
             last_ts=wall
             if val.get('gate')!=gate:continue
             state=val.get('state');conf=float(val.get('confidence') or 0)
+            image_stamp=val.get('sim_stamp_ns')
+            # Require advancing CAMERA frame stamps. Wall-clock reception of a
+            # cached green message must never count as fresh evidence.
+            if not isinstance(image_stamp,int) or image_stamp<=last_image_stamp:
+                continue
+            last_image_stamp=image_stamp
+            if state!=last_state:
+                log('TRAFFIC_CAMERA_STATE',gate=gate,state=state,
+                    score=round(conf,3),stamp_ns=image_stamp)
+                last_state=state
             if state in ('RED','YELLOW') and conf>=.7:
                 non_green=True;greens=0
             elif non_green and state=='GREEN' and conf>=.7:
@@ -314,11 +324,16 @@ def main():
             if overlapping(hull,rect):contacts.append(nm)
         return contacts
 
+    # AIC_V56_GUARDED_CENTERLINE_HANDOFF_20261013
     def centerline_follow_path(a,seq):
-        """Dense, straight, map-frame FollowPath; includes all gate via points.
+        """Dense FollowPath with a *guarded* join from an actual Nav2 stop.
 
-        MPPI is given the road heading at its terminal pose. Any final corner
-        yaw is performed separately by the safeguarded Nav2 Spin.
+        Nav2's goal checker accepts <=8cm XY errors. Prior code required
+        <=4.5cm centerline deviation to start the NEXT leg, so a successful
+        stop could deterministically fail here. Do NOT change the regular
+        5.5cm lane-tracking limit. For a small safe initial offset, generate
+        a smooth path that joins the nominal lane before the first via point;
+        audit the full footprint against map and painted lines first.
         """
         b=seq[-1]
         x,y,yaw=pos()
@@ -329,16 +344,20 @@ def main():
         heading=math.atan2(dy,dx)
         if abs(normalize(yaw-heading))>.30:
             abort('Unified FollowPath start heading mismatch (>0.30 rad)')
-        dline=centerline_error(x,y,a,b)
+        ux=dx/length;uy=dy/length;nx=-uy;ny=ux
+        start_s=(x-a['x'])*ux+(y-a['y'])*uy
+        signed_lat=(x-a['x'])*nx+(y-a['y'])*ny
+        dline=abs(signed_lat)
         start_err=math.hypot(x-a['x'],y-a['y'])
-        if dline>.045 or start_err>.11:
-            abort(f'Unified FollowPath bad start (lateral={dline:.3f}, origin={start_err:.3f})')
-        touches=lane_paint_near(x,y,yaw)
-        if touches:
-            abort('Unified FollowPath START paint <1.5cm: '+str(touches))
-        progress=((x-a['x'])*dx+(y-a['y'])*dy)/(length*length)
-        if progress<-.11/length or progress>max(.16,.11/length):
+        if dline>.085 or start_err>.11:
+            abort(f'Unified FollowPath start outside guarded join (lateral={dline:.3f}, origin={start_err:.3f})')
+        if lane_paint_near(x,y,yaw):
+            abort('Unified FollowPath START paint <1.5cm')
+        if clearance(grid,x,y,yaw)!='FREE':
+            abort('Unified FollowPath START occupied/unknown')
+        if start_s<-.11 or start_s>max(.16,.11):
             abort('Unified FollowPath unexpected longitudinal starting offset')
+
         traj=NavPath();traj.header.frame_id='map'
         traj.header.stamp=nav.get_clock().now().to_msg()
         def add(xx,yy,hh):
@@ -348,23 +367,76 @@ def main():
             po.pose.orientation.w=math.cos(hh/2)
             traj.poses.append(po)
         add(x,y,yaw)
-        first=max(0.,progress)+.04/length
-        if first>=.96:abort('Unified FollowPath starts too close to endpoint')
+
+        join=None
+        first_s=max(0.,start_s)+.04
+        # Only deviate from nominal centerline in a short, pre-audited JOIN.
+        # Never teleport, fake a start pose, or disable the painted-line guard.
+        if dline>.025:
+            # In the middle gate B_RIGHT_VIEW is only 10cm after staging;
+            # another signal via occurs 24cm after staging. A ~6cm starting
+            # offset cannot be safely corrected in only 7cm. A near via may
+            # be passed within 5cm while the join continues, but the join
+            # MUST finish BEFORE the next more distant gate via.
+            vias=sorted(((p['x']-a['x'])*ux+(p['y']-a['y'])*uy)
+                          for p in seq)
+            next_via=next((s for s in vias if s>start_s+.16),None)
+            if next_via is None:
+                abort('Unified FollowPath JOIN_REFUSED: no safe distant via point')
+            end_s=min(start_s+max(.24,3.4*dline),next_via-.03)
+            if end_s-start_s<.14 or end_s>=length-.03:
+                abort('Unified FollowPath JOIN_REFUSED: insufficient safe distance before via/endpoint')
+            span=end_s-start_s
+            for via_s in vias:
+                if start_s+.015<via_s<end_s:
+                    q=(via_s-start_s)/span
+                    near_error=abs(signed_lat*(1.-3.*q*q+2.*q*q*q))
+                    if near_error>.050:
+                        abort(f'Unified FollowPath JOIN_REFUSED: near via error {near_error:.3f}m >.050m')
+            n=max(12,math.ceil(span/.0125))
+            for j in range(1,n+1):
+                t=j/n
+                ss=start_s+span*t
+                smooth=1.-3.*t*t+2.*t*t*t
+                lat=signed_lat*smooth
+                xx=a['x']+ux*ss+nx*lat
+                yy=a['y']+uy*ss+ny*lat
+                slope=signed_lat*(-6*t+6*t*t)/span
+                hh=heading+math.atan(slope)
+                # Preflight of every joining footprint AND 1.5cm transverse
+                # position tolerance; existing 1.5cm white-line buffer remains.
+                for side in (-.015,0.,.015):
+                    testx=xx+nx*side;testy=yy+ny*side
+                    if clearance(grid,testx,testy,hh)!='FREE' or lane_paint_near(testx,testy,hh):
+                        abort(f'Unified FollowPath JOIN_REFUSED: clearance/paint at {(round(testx,3),round(testy,3))}')
+                add(xx,yy,hh)
+            end_xy=(a['x']+ux*end_s,a['y']+uy*end_s)
+            join={'start':{'x':x,'y':y},
+                  'end':{'x':end_xy[0],'y':end_xy[1]},
+                  'end_s':end_s,'ux':ux,'uy':uy,'nominal_max':.085}
+            first_s=end_s
+            log('LANE_START_JOIN_PREFLIGHT_PASS',from_point=a['name'],
+                to_point=b['name'],initial_lateral_m=round(dline,4),
+                merge_length_m=round(span,4),endpoint=end_xy,
+                note='Only joining section uses dynamic path reference; paint/map checks stay on')
+        else:
+            if first_s>=length-.04:
+                abort('Unified FollowPath starts too close to endpoint')
         sections=[]
         for p in seq:
-            t=((p['x']-a['x'])*dx+(p['y']-a['y'])*dy)/(length*length)
-            if t>first+1e-6:
-                sections.append(t)
-        if not sections or sections[-1]<.999:
+            ss=(p['x']-a['x'])*ux+(p['y']-a['y'])*uy
+            if ss>first_s+1e-6:
+                sections.append(ss)
+        if not sections or sections[-1]<length-.001:
             abort('Unified FollowPath invalid ordered via points')
-        previous=first
-        for end in sections:
-            count=max(1,math.ceil((end-previous)*length/.025))
+        prev_s=first_s
+        for end_s in sections:
+            count=max(1,math.ceil((end_s-prev_s)/.025))
             for k in range(1,count+1):
-                t=previous+(end-previous)*k/count
-                add(a['x']+dx*t,a['y']+dy*t,heading)
-            previous=end
-        return traj
+                ss=prev_s+(end_s-prev_s)*k/count
+                add(a['x']+ux*ss,a['y']+uy*ss,heading)
+            prev_s=end_s
+        return traj,join
 
     def finish_lane_corner_turn(a,b):
         """Real Nav2 Spin after lane FollowPath completes, never during the straight.
@@ -440,6 +512,7 @@ def main():
     def travel(seq,current,gate=None):
         nonlocal moving
         lane_leg = use_unified_follow(current,seq)
+        lane_join=None
         goals=[current]+seq
         for a,b in zip(goals,goals[1:]):
             counts,bad=segment_check(grid,a,b)
@@ -449,7 +522,7 @@ def main():
         health(camera=args.mode=='patrol')
         log('NAV_START',from_point=current['name'],goals=[p['name'] for p in seq],gate=gate)
         if lane_leg:
-            lane_path=centerline_follow_path(current,seq)
+            lane_path,lane_join=centerline_follow_path(current,seq)
             log('LANE_FOLLOW_PATH_START',from_point=current['name'],to_point=seq[-1]['name'],
                 path_poses=len(lane_path.poses),max_runtime_centerline_error_m=.055,
                 note='Unified straight FollowPath; via points retained; real obstacle -> stop; no replanning')
@@ -461,6 +534,9 @@ def main():
         # actual entry triggers stop. After commitment do NOT abruptly brake in
         # the crosswalk; check the traffic gate before entry instead.
         gate_limit=.12 if gate else 0
+        # AIC_PRECOMMIT_RAW_SIGNAL_20261013
+        gate_green_wall=latest['signal_wall'] if gate else 0.0
+        gate_image_ns=((latest['signal'] or {}).get('sim_stamp_ns',-1) if gate else -1)
         while not nav.isTaskComplete():
             spin(.04);health(camera=args.mode=='patrol')
             if sim_seconds()-start_sim>args.leg_timeout or time.monotonic()-start_wall>1800:
@@ -476,6 +552,19 @@ def main():
                 ('MID_LIGHT_WAIT','LEG12_GUIDE'), ('LEG12_GUIDE','BOTTOM_TURN')))
             bound=min(args.centerline_max,.035) if narrow else args.centerline_max
             if lane_leg:bound=min(bound,.055)  # <=5.5cm lane error, not a lane certificate
+            # During the short, preflighted handoff from a Nav2 checkpoint
+            # use the actual merge line as reference. Enforce the ORIGINAL
+            # nominal-lane upper cap (.085m) and footprint+paint checks;
+            # after the join, the regular 5.5cm centerline limit applies.
+            if lane_leg and lane_join is not None:
+                s=(x-current['x'])*lane_join['ux']+(y-current['y'])*lane_join['uy']
+                if s<=lane_join['end_s']+.015:
+                    if d>lane_join['nominal_max']:
+                        abort(f'LANE_JOIN_ABORT: nominal-lane deviation {d:.3f}m >.085m')
+                    join_err=centerline_error(x,y,lane_join['start'],lane_join['end'])
+                    if join_err>.045:
+                        abort(f'LANE_JOIN_ABORT: joining-path deviation {join_err:.3f}m >.045m')
+                    d=join_err
             if d>bound:
                 abort(f'Centerline deviation {d:.3f}m (limit {bound:.3f}, segment={segment}); safety stop')
             if lane_leg:
@@ -489,11 +578,28 @@ def main():
             if gate:
                 traveled=math.hypot(x-current['x'],y-current['y'])
                 if traveled<gate_limit:
-                    v=latest['signal']
-                    if not (v and v.get('gate')==gate and v.get('state')=='GREEN'
-                            and v.get('confidence',0)>=.7
-                            and time.monotonic()-latest['signal_wall']<1.2):
-                        abort(f'Traffic {gate} lost fresh green before commitment')
+                    v=latest['signal'] or {}
+                    now=time.monotonic()
+                    age=now-latest['signal_wall'] if latest['signal_wall'] else 1e9
+                    state=v.get('instant_state',v.get('state','UNKNOWN'))
+                    conf=float(v.get('instant_confidence',v.get('confidence') or 0))
+                    stamp=v.get('sim_stamp_ns')
+
+                    if v.get('gate')!=gate:
+                        abort(f'Traffic {gate} camera target mismatch: {v.get("gate")}')
+
+                    if state in ('RED','YELLOW') and conf>=.7 and age<.8:
+                        abort(f'Traffic {gate} observed {state} before commitment: STOP')
+
+                    if (state=='GREEN' and conf>=.7 and age<.6 and
+                            isinstance(stamp,int) and stamp>gate_image_ns):
+                        gate_green_wall=now
+                        gate_image_ns=stamp
+
+                    if now-gate_green_wall>.40 or age>.8:
+                        abort(f'Traffic {gate} no fresh green before commitment '
+                              f'(raw={state},stable={v.get("state")},'
+                              f'age={age:.2f}s,green_age={now-gate_green_wall:.2f}s)')
         moving=False
         result=nav.getResult()
         if result!=TaskResult.SUCCEEDED:abort('Nav2 failed: '+str(result))
@@ -523,6 +629,15 @@ def main():
         while latest['laser_wall']==0 or latest['odom_wall']==0:
             spin(.1)
             if time.monotonic()-t>20:abort('No scan/odom input')
+        # AIC_CAMERA_BOOTSTRAP_WAIT_20261013
+        if args.mode=='patrol':
+            wait_start=time.monotonic()
+            while not latest['camera_wall'] or time.monotonic()-latest['camera_wall']>2:
+                spin(.1)
+                if time.monotonic()-wait_start>25:
+                    raw=nav.get_publishers_info_by_topic('/camera/image_raw')
+                    abort(f'CAMERA_BOOTSTRAP_TIMEOUT: /camera/image_raw publishers={len(raw)}')
+            log('CAMERA_STREAM_READY',age_s=round(time.monotonic()-latest['camera_wall'],3))
         health(camera=args.mode=='patrol')
         t=time.monotonic()
         while True:

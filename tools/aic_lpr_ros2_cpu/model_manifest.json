@@ -1,0 +1,115 @@
+{
+  "models": {
+    "characters.pt": {
+      "bytes": 5486682,
+      "sha256": "8c17884ec1a4f8f01573b3438047af0a90676d3ae4e92bab20e810c71f5851de"
+    },
+    "plate_detector.pt": {
+      "bytes": 5492954,
+      "sha256": "058e7a4724be681f5b108389fe65f0874fdbd1ffff886e54b43db0e9f349ed48"
+    }
+  },
+  "alphabet": [
+    "京",
+    "津",
+    "沪",
+    "渝",
+    "冀",
+    "晋",
+    "蒙",
+    "辽",
+    "吉",
+    "黑",
+    "苏",
+    "浙",
+    "皖",
+    "闽",
+    "赣",
+    "鲁",
+    "豫",
+    "鄂",
+    "湘",
+    "粤",
+    "桂",
+    "琼",
+    "川",
+    "贵",
+    "云",
+    "藏",
+    "陕",
+    "甘",
+    "青",
+    "宁",
+    "新",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9"
+  ],
+  "training": {
+    "plate_epochs": 35,
+    "character_base_epochs": 45,
+    "character_adapt_epochs": 15
+  },
+  "synthetic_test": {
+    "positive_count": 552,
+    "exact_correct": 540,
+    "negative_count": 48,
+    "negative_correct": 48,
+    "detected_at_iou50": 552,
+    "exact_accuracy": 0.9782608695652174
+  },
+  "source_diagnostics": [
+    {
+      "image": "scene_1.png",
+      "expected": "皖BK3P58",
+      "exact_match": true
+    },
+    {
+      "image": "scene_2.png",
+      "expected": "皖BK3P58",
+      "exact_match": true
+    },
+    {
+      "image": "scene_3.png",
+      "expected": "皖BK3P58",
+      "exact_match": true
+    },
+    {
+      "image": "scene_4.png",
+      "expected": "苏APL12A",
+      "exact_match": true
+    }
+  ],
+  "limitation": "Source diagnostics and same-artwork synthetic tests only; no independent competition accuracy or ROS integration validated."
+}
