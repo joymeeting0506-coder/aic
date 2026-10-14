@@ -75,6 +75,7 @@ GATE_SPANS={
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--mode', choices=['preview','top-stage','patrol'],default='preview')
+    ap.add_argument('--map-yaml', default='', help='Use the freshly saved SLAM map in both preview and patrol')
     ap.add_argument('--ack-official-crossing',action='store_true')
     ap.add_argument('--resume-top-stage', action='store_true',
                     help='Guarded recovery only: robot physically at TOP_STAGING; first leg omitted')
@@ -89,7 +90,7 @@ def main():
         ap.error('Unsupported timeout or centerline-max')
     from ament_index_python.packages import get_package_share_directory
     share=Path(get_package_share_directory('smart_community_gazebo'))
-    route=share/'config/official_route.yaml';map_yaml=share/'maps/community.yaml'
+    route=share/'config/official_route.yaml';map_yaml=(Path(args.map_yaml).expanduser().resolve() if args.map_yaml else share/'maps/community.yaml')
     raw=load_points(route);stops=planned_stops(raw)
     expected={p['name'] for p in raw}
     covered={p['name'] for p in stops}|{'START'}

@@ -13,6 +13,11 @@ install(
 )
 
 install(PROGRAMS
+  scripts/aic_coverage_core.py
+  scripts/aic_coverage_mapping.py
+  scripts/aic_handoff_core.py
+  scripts/aic_handoff_initial_pose.py
+  scripts/aic_mission_supervisor.py
   scripts/frame_remap.py
   scripts/explore_mapping.py
   scripts/auto_mapping.py
