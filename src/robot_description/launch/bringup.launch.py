@@ -16,9 +16,12 @@ def generate_launch_description():
     world_pkg = get_package_share_directory('smart_community_gazebo')
     robot_pkg = get_package_share_directory('robot_description')
     gz_pkg = get_package_share_directory('ros_gz_sim')
+    nav2_pkg = get_package_share_directory('nav2_bringup')
 
     world = os.path.join(world_pkg, 'worlds', 'smart_community_v2.sdf')
     models = os.path.join(world_pkg, 'models')
+    map_file = os.path.join(world_pkg, 'maps', 'community.yaml')
+    nav2_params = os.path.join(robot_pkg, 'config', 'nav2_params.yaml')
 
     headless = LaunchConfiguration('headless')
     render_mode = LaunchConfiguration('render_mode')
@@ -118,6 +121,17 @@ def generate_launch_description():
         output='screen',
     )
 
+    # Nav2 定位 + 导航（与 nav_bringup.launch.py 一致），让 GUI 快捷命令也能直接跑巡检。
+    localization = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(nav2_pkg, 'launch', 'localization_launch.py')),
+        launch_arguments={'map': map_file, 'params_file': nav2_params, 'use_sim_time': 'true'}.items(),
+    )
+
+    navigation = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(nav2_pkg, 'launch', 'navigation_launch.py')),
+        launch_arguments={'params_file': nav2_params, 'use_sim_time': 'true'}.items(),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'headless',
@@ -131,4 +145,5 @@ def generate_launch_description():
         ),
         *env, gz_sim, gz_sim_software, gz_sim_headless,
         spawn_robot, bridge, traffic_light, frame_remap, traffic_light_detector,
+        localization, navigation,
     ])

@@ -42,10 +42,11 @@ def generate_launch_description():
         launch_arguments={'gz_args': '-r -s -v2 ' + world}.items(),
     )
 
-    # 世界文件自带 patrol_bot，只取 robot_state_publisher，避免撞名（见 spawn_robot.launch.py）
+    # v8.4 半决赛世界不含 patrol_bot，需在此 spawn（与 bringup/nav_bringup 一致）。
+    # 建图从场地左下角 (0.4, 0.4) 朝东起步，与 coverage_mapping.py 的 odom 航点假设一致。
     spawn_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(robot_pkg, 'launch', 'spawn_robot.launch.py')),
-        launch_arguments={'spawn': 'false'}.items(),
+        launch_arguments={'spawn': 'true', 'x': '0.4', 'y': '0.4', 'yaw': '0.0'}.items(),
     )
 
     bridge = Node(

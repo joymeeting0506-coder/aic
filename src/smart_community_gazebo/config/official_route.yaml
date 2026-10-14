@@ -20,30 +20,44 @@ route:
   y: 3.886
   yaw: -1.5707963267948966
   action: turn_down
+# 左边道路下行，转到朝右(+X)看 A 街区
 - name: A_LEFT_VIEW
   x: 0.314
   y: 3.25
-  yaw: -1.5707963267948966
+  yaw: 0.0
   action: view_A_left
+# 转回朝下，继续走到中横道
+- name: LEFT_TURN_DOWN
+  x: 0.314
+  y: 2.624
+  yaw: -1.5707963267948966
+  action: turn_down
 - name: MIDDLE_LEFT
   x: 0.314
   y: 2.624
   yaw: 0.0
   action: turn_right
-- name: A_BOTTOM_B_TOP_VIEW
+# 中横道，朝上看 A 底部、朝下看 B 顶部
+- name: A_BOTTOM_VIEW
   x: 1.25
   y: 2.624
-  yaw: 0.0
-  action: view_A_bottom_and_B_top
+  yaw: 1.5707963267948966
+  action: view_A_bottom
+- name: B_TOP_VIEW
+  x: 1.25
+  y: 2.624
+  yaw: -1.5707963267948966
+  action: view_B_top
 - name: CENTER_TURN
   x: 1.994
   y: 2.624
   yaw: -1.5707963267948966
   action: turn_down
+# 中竖道下行，转到朝左(-X)看 B 街区
 - name: B_RIGHT_VIEW
   x: 1.994
   y: 2.0
-  yaw: -1.5707963267948966
+  yaw: 3.141592653589793
   action: view_B_right
 - name: MID_LIGHT_WAIT
   x: 1.994
@@ -60,21 +74,37 @@ route:
   y: 0.312
   yaw: 1.5707963267948966
   action: turn_up
+# 停车道，逐个转到朝右(+X)看车牌，之间转回朝上继续走
 - name: PLATE_1
   x: 3.254
-  y: 0.5
-  yaw: 1.5707963267948966
+  y: 0.314
+  yaw: 0.0
   action: read_plate_1
-- name: PLATE_2
+- name: TURN_UP_2
   x: 3.254
   y: 0.956
   yaw: 1.5707963267948966
+  action: turn_up
+- name: PLATE_2
+  x: 3.254
+  y: 0.956
+  yaw: 0.0
   action: read_plate_2
-- name: PLATE_3
+- name: TURN_UP_3
   x: 3.254
   y: 1.598
   yaw: 1.5707963267948966
+  action: turn_up
+- name: PLATE_3
+  x: 3.254
+  y: 1.598
+  yaw: 0.0
   action: read_plate_3
+- name: TURN_UP_TOP
+  x: 3.254
+  y: 3.886
+  yaw: 1.5707963267948966
+  action: turn_up
 - name: RIGHT_TOP
   x: 3.254
   y: 3.886

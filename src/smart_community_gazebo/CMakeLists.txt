@@ -10,6 +10,7 @@ install(DIRECTORY
   launch
   reference
   tools
+  config
   DESTINATION share/${PROJECT_NAME}
 )
 

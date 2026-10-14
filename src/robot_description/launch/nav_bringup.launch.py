@@ -51,12 +51,16 @@ def generate_launch_description():
             '/model/patrol_bot/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
             '/model/patrol_bot/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry',
             'lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
+            'camera@sensor_msgs/msg/Image[gz.msgs.Image',
+            'camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         remappings=[
-            ('/model/patrol_bot/cmd_vel', '/cmd_vel_smoothed'),
+            ('/model/patrol_bot/cmd_vel', '/cmd_vel'),
             ('/model/patrol_bot/odometry', '/odom'),
             ('lidar', '/scan'),
+            ('camera', '/camera/image_raw'),
+            ('camera_info', '/camera/camera_info'),
         ],
         output='screen',
     )
@@ -65,6 +69,21 @@ def generate_launch_description():
         package='robot_description',
         executable='frame_remap.py',
         name='frame_remap',
+        output='screen',
+    )
+
+    # 红绿灯动态切换 + 颜色识别（与 bringup.launch.py 对齐，无头巡检也具备）
+    traffic_light = Node(
+        package='smart_community_gazebo',
+        executable='traffic_light_controller.py',
+        name='traffic_light_controller',
+        output='screen',
+    )
+
+    traffic_light_detector = Node(
+        package='robot_description',
+        executable='traffic_light_detector.py',
+        name='traffic_light_detector',
         output='screen',
     )
 
@@ -84,5 +103,6 @@ def generate_launch_description():
             default_value='sensor_safe',
             description='sensor_safe/software_render 启用 llvmpipe；ogre 使用硬件渲染路径',
         ),
-        *env, gz_sim, spawn_robot, bridge, frame_remap, localization, navigation,
+        *env, gz_sim, spawn_robot, bridge, frame_remap,
+        traffic_light, traffic_light_detector, localization, navigation,
     ])
